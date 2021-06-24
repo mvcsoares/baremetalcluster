@@ -280,10 +280,12 @@ setup_global_variable() {
   if command -v corp-ssh-helper &> /dev/null
   then
     EXTRA_SSH_ARGS=(-- -o ProxyCommand='corp-ssh-helper %h %p' -ServerAliveInterval=30 -o ConnectTimeout=30)
+    EXTRA_SCP_ARGS=(--scp-flag "-o ProxyCommand=corp-ssh-helper %h %p")
   fi
   VPC_PREFIX=abm-vpc
   VPC=$VPC_PREFIX-$grandomid
-  MACHINE_TYPE=n1-standard-4
+  MACHINE_TYPE=n1-standard-8
+  ISTIO_VERSION=1.9.5
   VM_PREFIX=abm-vm-$grandomid
   VM_WS=$VM_PREFIX-admin-$grandomid-$zone
   VM_GW=$VM_PREFIX-gateway-$grandomid-$zone
@@ -625,13 +627,13 @@ EOF
 }
 
 prepare_admin_ws() {
-   gcloud compute scp $sa_key root@$VM_WS:/root/$sa_key --zone $zone
+   gcloud compute scp $sa_key root@$VM_WS:/root/$sa_key --zone $zone "${EXTRA_SCP_ARGS[@]}"
    retcode=$?
    if [ $retcode -ne 0 ]; then
        echo "Fail to copy sa keys to $VM_WS"
        exit 1
    fi
-   gcloud compute scp nginx.yaml root@$VM_WS:/root/nginx.yaml --zone $zone
+   gcloud compute scp nginx.yaml root@$VM_WS:/root/nginx.yaml --zone $zone "${EXTRA_SCP_ARGS[@]}"
    gcloud compute ssh root@$VM_WS --zone $zone "${EXTRA_SSH_ARGS[@]}" << EOF
    curl -LO "https://storage.googleapis.com/kubernetes-release/release/$(curl -s https://storage.googleapis.com/kubernetes-release/release/stable.txt)/bin/linux/amd64/kubectl"
    chmod +x kubectl
@@ -650,7 +652,7 @@ prepare_admin_ws() {
    curl -fsSL https://get.docker.com -o get-docker.sh
    sh get-docker.sh
    #curl -L https://istio.io/downloadIstio | sh -
-   curl -L https://istio.io/downloadIstio | ISTIO_VERSION=1.9.0 TARGET_ARCH=x86_64 sh -
+   curl -L https://istio.io/downloadIstio | ISTIO_VERSION=$ISTIO_VERSION TARGET_ARCH=x86_64 sh -
    curl -OL https://raw.githubusercontent.com/minzhuogoogle/baremetalcluster/main/nginx.yaml
 EOF
    if [ $retcode -ne 0 ]; then
@@ -677,7 +679,7 @@ prepare_ssh_key() {
       ssh-keygen -t rsa -N "" -f ~/.ssh/id_rsa
       sed 's/ssh-rsa/root:ssh-rsa/' ~/.ssh/id_rsa.pub > ssh-metadata
 EOF
-  gcloud compute scp root@$VM_WS:/root/ssh-metadata ssh-metadata-$grandomid --zone $zone
+  gcloud compute scp root@$VM_WS:/root/ssh-metadata ssh-metadata-$grandomid --zone $zone "${EXTRA_SCP_ARGS[@]}"
   retcode=$?
   if [ $retcode -ne 0 ]; then
        echo "Fail to copy metadata from $VM_WS to local machine."
@@ -805,15 +807,14 @@ install_asm() {
   gcloud compute ssh root@$VM_WS --zone $zone "${EXTRA_SSH_ARGS[@]}" << EOF
   export clustername=$clustername
   set -x
-  dirname=istio-1.9.0
   export PATH=$PWD/bin:$PATH
   export KUBECONFIG=/root/bmctl-workspace/$clustername/$clustername-kubeconfig
-  /root/istio-1.9.0/bin/istioctl install --set profile=demo -y
+  /root/istio-$ISTIO_VERSION/bin/istioctl install --set profile=demo -y
   kubectl create namespace bookstore
   kubectl label namespace bookstore istio-injection=enabled
-  kubectl apply -f /root/istio-1.9.0/samples/bookinfo/platform/kube/bookinfo.yaml -n bookstore
-  kubectl apply -f /root/istio-1.9.0/samples/bookinfo/networking/bookinfo-gateway.yaml -n bookstore
-  /root/istio-1.9.0/bin/istioctl analyze
+  kubectl apply -f /root/istio-$ISTIO_VERSION/samples/bookinfo/platform/kube/bookinfo.yaml -n bookstore
+  kubectl apply -f /root/istio-$ISTIO_VERSION/samples/bookinfo/networking/bookinfo-gateway.yaml -n bookstore
+  /root/istio-$ISTIO_VERSION/bin/istioctl analyze
 EOF
 }
 
@@ -831,7 +832,7 @@ enable_routing_node() {
   declare -a VMs=("$VM_W0" "$VM_W1" "$VM_W2")
   for vm in ${VMs[@]}; do
     echo "Updating routers in $vm"
-    gcloud compute scp populate_routing_table.data root@$vm:/root/nodes.sh --zone $zone
+    gcloud compute scp populate_routing_table.data root@$vm:/root/nodes.sh --zone $zone "${EXTRA_SCP_ARGS[@]}"
     gcloud compute ssh root@$VM_WS --zone $zone "${EXTRA_SSH_ARGS[@]}" << EOF
     set -x
     chmod +x /root/nodes.sh
@@ -843,7 +844,7 @@ EOF
 enable_routing_lber() {
   for vm in {$VM_CP0}; do
     echo "Updating routers in $vm"
-    gcloud compute scp populate_routing_table_cp.data root@$vm:/root/cps.sh --zone $zone
+    gcloud compute scp populate_routing_table_cp.data root@$vm:/root/cps.sh --zone $zone "${EXTRA_SCP_ARGS[@]}"
     gcloud compute ssh root@$vm --zone $zone "${EXTRA_SSH_ARGS[@]}" << EOF
     set -x
     chmod +x /root/cps.sh
@@ -916,7 +917,7 @@ vmip0=2
 
 if [ -z "$1" ]
 then
-    version=1.6.1
+    version=1.8.0
     mnetworkflag=1
     totalclusters=2
 else
@@ -988,7 +989,6 @@ until [ $loop -eq $totalclusters ]; do
      prepare_admin_ws
      prepare_ssh_key
   fi
-  prepare_vm_startup_script
   create_vxlan
   setup_vm_startup_script
   if [ $mnetworkflag -eq 1 ]; then
