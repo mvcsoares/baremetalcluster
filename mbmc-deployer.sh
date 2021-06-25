@@ -277,6 +277,7 @@ setup_gcp_env() {
 
 setup_global_variable() {
   EXTRA_SSH_ARGS=()
+  EXTRA_SCP_ARGS=()
   if command -v corp-ssh-helper &> /dev/null
   then
     EXTRA_SSH_ARGS=(-- -o ProxyCommand='corp-ssh-helper %h %p' -ServerAliveInterval=30 -o ConnectTimeout=30)
@@ -287,8 +288,8 @@ setup_global_variable() {
   MACHINE_TYPE=n1-standard-8
   ISTIO_VERSION=1.9.5
   VM_PREFIX=abm-vm-$grandomid
-  VM_WS=$VM_PREFIX-admin-$grandomid-$zone
-  VM_GW=$VM_PREFIX-gateway-$grandomid-$zone
+  VM_WS=$VM_PREFIX-admin-$zone
+  VM_GW=$VM_PREFIX-gateway-$zone
   FIREWALL_NAME=abm-fw-$grandomid
   SUBSET_NAME=abm-subset-$grandomid
 
